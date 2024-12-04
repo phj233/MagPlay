@@ -2,10 +2,12 @@ package top.phj233.magplay.ui.screens.work
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.phj233.magplay.entity.Contact
 import top.phj233.magplay.repository.DBUtil
 
@@ -27,8 +29,8 @@ class ContactViewModel : ViewModel() {
         }
     }
 
-    fun deleteContact(contact: Contact) {
-        viewModelScope.launch {
+    suspend fun deleteContact(contact: Contact) {
+        withContext(Dispatchers.IO) {
             contactDao.deleteContact(contact)
         }
     }

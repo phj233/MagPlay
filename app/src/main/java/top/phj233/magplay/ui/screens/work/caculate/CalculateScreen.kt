@@ -29,8 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -39,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import top.phj233.magplay.entity.Calculator
-import top.phj233.magplay.nav.LocalNavController
 import top.phj233.magplay.ui.components.CalculateUserDetailCard
 import top.phj233.magplay.ui.components.MagPlayTopBar
 import top.phj233.magplay.ui.screens.work.CalculatorViewModel
@@ -49,19 +46,12 @@ import java.time.LocalDateTime
 @Composable
 @Preview
 fun Calculate() {
-    val nav = LocalNavController.current
     val viewModel: CalculatorViewModel = viewModel()
     val calculators by viewModel.calculators.collectAsState()
     var sexSelect by remember { mutableStateOf(false) }
     var userWeight by remember { mutableStateOf("") }
     var userName by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
-    val brush = Brush.verticalGradient(
-        colors = listOf(
-            Color.Transparent,
-            Color.Transparent
-        )
-    )
 
     Scaffold(
         topBar = {

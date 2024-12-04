@@ -12,7 +12,7 @@ import top.phj233.magplay.repository.dao.MagnetHistoryDao
 @Database(entities = [
     Calculator::class,
     Contact::class,
-    MagnetHistory::class], version = 2)
+    MagnetHistory::class], version = 3)
 abstract class MagPlayDB : RoomDatabase() {
     abstract fun calculatorDao(): CalculatorDao
     abstract fun contactDao(): ContactDao

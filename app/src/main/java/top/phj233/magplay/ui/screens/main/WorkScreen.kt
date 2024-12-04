@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import top.phj233.magplay.nav.LocalNavController
 import top.phj233.magplay.nav.navCalculate
 import top.phj233.magplay.nav.navContacts
+import top.phj233.magplay.nav.navMusicPlayer
 
 @Composable
 fun WorkScreen() {
@@ -31,6 +31,10 @@ fun WorkScreen() {
             FunctionCard(
                 text = "通讯录",
                 onClick = { nav.navContacts() }
+            )
+            FunctionCard(
+                text = "音乐播放器",
+                onClick = { nav.navMusicPlayer() }
             )
         }
     }

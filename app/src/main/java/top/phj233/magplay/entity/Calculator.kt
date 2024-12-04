@@ -18,4 +18,4 @@ data class Calculator(
     val height: Double,
     @ColumnInfo(name = "create_time")
     val createTime: String
-    )
+)
