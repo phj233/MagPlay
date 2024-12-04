@@ -11,20 +11,28 @@ import androidx.navigation.compose.rememberNavController
 import top.phj233.magplay.nav.MagPlayNavRoutes.MAGNET_PARSE
 import top.phj233.magplay.nav.MagPlayNavRoutes.MAIN
 import top.phj233.magplay.nav.MagPlayNavRoutes.MAIN_WORK
+import top.phj233.magplay.nav.MagPlayNavRoutes.SETTINGS
 import top.phj233.magplay.nav.MagPlayNavRoutes.WORK_CALCULATE
 import top.phj233.magplay.nav.MagPlayNavRoutes.WORK_CONTACTS
 import top.phj233.magplay.nav.MagPlayNavRoutes.WORK_CONTACTS_CREATE
 import top.phj233.magplay.nav.MagPlayNavRoutes.WORK_CONTACTS_SEARCH
-import top.phj233.magplay.ui.screens.magnet.ParseScreen
+import top.phj233.magplay.nav.MagPlayNavRoutes.WORK_MUSIC_PLAYER
+import top.phj233.magplay.ui.screens.magnet.ParsePage
 import top.phj233.magplay.ui.screens.main.Main
 import top.phj233.magplay.ui.screens.main.WorkScreen
 import top.phj233.magplay.ui.screens.work.caculate.Calculate
 import top.phj233.magplay.ui.screens.work.contact.screen.ContactCreateScreen
 import top.phj233.magplay.ui.screens.work.contact.screen.ContactListScreen
 import top.phj233.magplay.ui.screens.work.contact.screen.ContactSearchScreen
+import top.phj233.magplay.ui.screens.work.music_player.MusicPlayerScreen
+import top.phj233.magplay.ui.settings.SettingsPage
 
 val LocalNavController = staticCompositionLocalOf<NavHostController>{
     error("No NavHostController provided")
+}
+
+fun NavController.navMain(){
+    navigate(MAIN)
 }
 
 fun NavController.navCalculate(){
@@ -41,6 +49,14 @@ fun NavController.navContactsSearch(){
 
 fun NavController.navContactCreate(){
     navigate(WORK_CONTACTS_CREATE)
+}
+
+fun NavController.navMusicPlayer(){
+    navigate(WORK_MUSIC_PLAYER)
+}
+
+fun NavController.navSetting(page: String){
+    navigate("${SETTINGS}/${page}")
 }
 
 fun NavController.navParse(magnetLink: String){
@@ -60,8 +76,8 @@ fun MagPlayNavHost(){
         NavHost(
             navController = navController,
             startDestination = MAIN
-        ){
-            composable(MAIN){
+        ) {
+            composable(MAIN) {
                 Main()
             }
 
@@ -69,7 +85,7 @@ fun MagPlayNavHost(){
                 WorkScreen()
             }
 
-            composable(WORK_CALCULATE){
+            composable(WORK_CALCULATE) {
                 Calculate()
             }
 
@@ -88,11 +104,24 @@ fun MagPlayNavHost(){
             composable(WORK_CONTACTS_CREATE) {
                 ContactCreateScreen()
             }
-            composable("${MAGNET_PARSE}/{magnetLink}") { backStackEntry ->
+
+            composable(WORK_MUSIC_PLAYER) {
+                MusicPlayerScreen()
+            }
+
+            composable("${SETTINGS}/{page}") { backStackEntry ->
+                val page = backStackEntry.arguments?.getString("page")
+                when (page) {
+                    "theme" -> {
+                        SettingsPage.ThemeSetting()
+                    }
+                }
+            }
+            composable("$MAGNET_PARSE/{magnetLink}") { backStackEntry ->
                 val magnetLink = backStackEntry.arguments?.getString("magnetLink")
-                ParseScreen(magnetLink)
+                requireNotNull(magnetLink) { "磁力链接不能为空" }
+                ParsePage(magnetLink)
             }
         }
     }
-
 }

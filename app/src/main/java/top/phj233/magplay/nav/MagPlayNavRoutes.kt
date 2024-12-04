@@ -11,7 +11,9 @@ object MagPlayNavRoutes {
     const val WORK_CONTACTS = "main/work/contacts"
     const val WORK_CONTACTS_SEARCH = "main/work/contacts/search"
     const val WORK_CONTACTS_CREATE = "main/work/contacts/create"
+    const val WORK_MUSIC_PLAYER = "main/work/music_player"
+
+    const val SETTINGS = "settings"
 
     const val MAGNET_PARSE = "magnet/parse"
-
 }

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -24,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +44,7 @@ fun Main(){
         "Search" -> "Search"
         "Work" -> "Work"
         "Account" -> "Account"
+        "Setting" -> "Setting"
         else -> selectedTab
     }
     Scaffold(
@@ -49,7 +52,7 @@ fun Main(){
                 TopAppBar(
                     title = {
                         Text(
-                            "Navigation......", fontSize = 25.sp
+                            "MagPlay", fontSize = 25.sp, fontWeight = FontWeight.Bold
                         )
                     }
                 )
@@ -129,6 +132,24 @@ fun Main(){
                             selectedTab = "Account"
                         }
                     )
+                    NavigationBarItem(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = "Localized description"
+                            )
+                        },
+                        label = {
+                            Text(
+                                "Setting",
+                                textAlign = TextAlign.Center,
+                            )
+                        },
+                        selected = selectedTab == "Setting",
+                        onClick = {
+                            selectedTab = "Setting"
+                        }
+                    )
                 }
             },
         floatingActionButton = {
@@ -160,6 +181,10 @@ fun Main(){
                             modifier = Modifier.padding(8.dp),
                             text = "This is the Account Screen"
                         )
+                    }
+
+                    "Setting" -> {
+                        SettingsScreen()
                     }
                 }
     }
