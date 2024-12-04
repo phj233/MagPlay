@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# -dontobfuscate
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# libtorrent4j
+-keep class org.libtorrent4j.** { *; }
