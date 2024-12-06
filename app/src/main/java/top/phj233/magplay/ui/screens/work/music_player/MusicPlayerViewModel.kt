@@ -62,6 +62,17 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
     private val _playlist = MutableStateFlow<List<MediaItem>>(emptyList())
     val playlist = _playlist.asStateFlow()
 
+    data class MusicMetadata(
+        val bitrate: String = "",
+        val sampleRate: String = "",
+        val format: String = "",
+        val duration: String = "",
+        val fileSize: String = ""
+    )
+
+    private val _musicMetadata = MutableStateFlow<MusicMetadata?>(null)
+    val musicMetadata = _musicMetadata.asStateFlow()
+
     private var positionUpdateJob: Job? = null
 
     init {
@@ -222,8 +233,9 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                 }
                 val title = fileName.substringBeforeLast(".")
                 
-                // 异步获取封面
+                // 异步获取封面和元数据
                 val artwork = getArtworkFromUri(uri, mediaId)
+                getMusicMetadata(uri)  // 获取元数据
                 
                 // 创建 MediaItem
                 val mediaItem = MediaItem.Builder()
@@ -307,8 +319,9 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                             if (isSupportedAudioFormat(displayName)) {
                                 val mediaId = id.toString()
                                 
-                                // 异步获取封面
+                                // 异步获取封面和元数据
                                 val artwork = getArtworkFromUri(contentUri, mediaId)
+                                getMusicMetadata(contentUri)  // 获取元数据
                                 
                                 val mediaItem = MediaItem.Builder()
                                     .setUri(contentUri)
@@ -515,6 +528,58 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
         coroutineScope.cancel()
         player.release()
         artworkCache.evictAll()
+    }
+
+    /**
+     * 获取音乐文件的元数据信息
+     *
+     * @param uri 音乐文件的 URI
+     */
+    suspend fun getMusicMetadata(uri: Uri) {
+        try {
+            MediaMetadataRetriever().use { retriever ->
+                retriever.setDataSource(context, uri)
+                
+                val bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.let {
+                    "${it.toInt() / 1000} kbps"
+                } ?: "未知"
+                
+                val sampleRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.let {
+                    "$it Hz"
+                } ?: "未知"
+                
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.let {
+                    val seconds = it.toLong() / 1000
+                    val minutes = seconds / 60
+                    val remainingSeconds = seconds % 60
+                    "%02d:%02d".format(minutes, remainingSeconds)
+                } ?: "未知"
+                
+                val format = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
+                    it.substringAfterLast("/").uppercase()
+                } ?: "未知"
+                
+                val fileSize = context.contentResolver.openFileDescriptor(uri, "r")?.use { 
+                    val size = it.statSize
+                    when {
+                        size < 1024 -> "$size B"
+                        size < 1024 * 1024 -> "%.1f KB".format(size / 1024.0)
+                        else -> "%.1f MB".format(size / (1024.0 * 1024.0))
+                    }
+                } ?: "未知"
+                
+                _musicMetadata.value = MusicMetadata(
+                    bitrate = bitrate,
+                    sampleRate = sampleRate,
+                    format = format,
+                    duration = duration,
+                    fileSize = fileSize
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "获取音乐元数据失败: ${e.message}", e)
+            _musicMetadata.value = null
+        }
     }
 
     companion object {
