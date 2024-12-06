@@ -47,7 +47,7 @@ val appModule = module {
      * ExoPlayer单例配置
      * 配置音频属性和使用场景
      */
-    single {
+    single(createdAtStart = true) {
         ExoPlayer.Builder(androidContext())
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -56,6 +56,7 @@ val appModule = module {
                     .build(),
                 true
             )
+            .setHandleAudioBecomingNoisy(true)
             .build()
     }
 
@@ -69,5 +70,6 @@ val appModule = module {
             .build()
     }
 
-    viewModel { MusicPlayerViewModel() }
+    // 使用 single 而不是 viewModel，确保共享同一个 ExoPlayer 实例
+    single { MusicPlayerViewModel() }
 }

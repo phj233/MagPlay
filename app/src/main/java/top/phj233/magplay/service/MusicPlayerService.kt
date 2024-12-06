@@ -1,5 +1,6 @@
 package top.phj233.magplay.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -17,6 +19,7 @@ import androidx.media3.session.MediaStyleNotificationHelper.MediaStyle
 import org.koin.android.ext.android.inject
 import top.phj233.magplay.MainActivity
 import top.phj233.magplay.R
+import top.phj233.magplay.repository.preferences.PlaylistMMKV
 
 /**
  * 音乐播放服务
@@ -26,11 +29,13 @@ import top.phj233.magplay.R
  * - 通知栏管理
  * - 媒体会话控制
  * - 前台服务维护
+ * - 播放进度保存和恢复
  *
  * 主要组件：
  * - ExoPlayer：用于音频播放
  * - MediaSession：处理媒体会话
  * - NotificationManager：管理通知栏显示
+ * - PlaylistMMKV：保存播放进度
  *
  * @author phj233
  */
@@ -38,11 +43,13 @@ import top.phj233.magplay.R
 class MusicPlayerService : MediaSessionService() {
     private val player: ExoPlayer by inject()
     private val mediaSession: MediaSession by inject()
+    private val playlistMMKV: PlaylistMMKV by inject()
     private val notificationManager by lazy {
         getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     }
 
     companion object {
+        private const val TAG = "MusicPlayerService"
         private const val CHANNEL_ID = "music_playback_channel"
         private const val NOTIFICATION_ID = 1
         /**
@@ -55,6 +62,28 @@ class MusicPlayerService : MediaSessionService() {
     }
 
     /**
+     * 处理服务命令
+     * 处理播放控制动作
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_PLAY -> player.play()
+            ACTION_PAUSE -> player.pause()
+            ACTION_NEXT -> player.seekToNext()
+            ACTION_PREVIOUS -> player.seekToPrevious()
+            else -> {
+                // 如果没有特定操作，尝试恢复播放状态
+                if (player.playbackState != Player.STATE_READY) {
+                    restorePlaybackState()
+                }
+            }
+        }
+        // 始终保持前台服务状态
+        startForeground(NOTIFICATION_ID, createNotification())
+        return START_STICKY
+    }
+
+    /**
      * 服务创建时的初始化
      * 创建通知渠道并设置播放器监听器
      */
@@ -62,32 +91,78 @@ class MusicPlayerService : MediaSessionService() {
         super.onCreate()
         createNotificationChannel()
         setupPlayerListener()
-        // 立即显示通知
+        // 恢复上次播放位置
+        restorePlaybackState()
+        // 立即显示通知并启动前台服务
         startForeground(NOTIFICATION_ID, createNotification())
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     /**
+     * 服务销毁时释放资源
+     * 保存播放进度
+     */
+    override fun onDestroy() {
+        // 保存播放状态
+        savePlaybackState()
+        // 停止前台服务
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        // 清理资源
+        player.removeListener(playerListener)
+        mediaSession.release()
+        player.release()
+        super.onDestroy()
+    }
+
+    /**
      * 设置播放器状态监听
      * 监听播放状态变化和媒体项切换
      */
     private fun setupPlayerListener() {
-        player.addListener(object : Player.Listener {
+        playerListener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateNotificationState()
+                // 播放状态改变时保存进度
+                if (!isPlaying) {
+                    savePlaybackState()
+                }
             }
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 updateNotificationState()
+                // 切换曲目时保存索引
+                savePlaybackState()
             }
-        })
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                Log.e(TAG, "播放器错误: ${error.message}", error)
+                // 发生错误时尝试恢复播放状态
+                restorePlaybackState()
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_IDLE -> {
+                        // 播放器空闲时尝试恢复状态
+                        restorePlaybackState()
+                    }
+                    Player.STATE_ENDED -> {
+                        // 播放结束时保存状态
+                        savePlaybackState()
+                    }
+                }
+                updateNotificationState()
+            }
+        }
+        player.addListener(playerListener)
     }
 
     /**
      * 创建通知渠道
      * 适配 Android O 及以上版本
      */
+    @SuppressLint("ObsoleteSdkInt")
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -107,12 +182,12 @@ class MusicPlayerService : MediaSessionService() {
      * 根据播放状态更新前台服务通知
      */
     private fun updateNotificationState() {
-        val notification = createNotification()
-        if (player.isPlaying) {
+        try {
+            val notification = createNotification()
+            // 始终保持前台服务状态
             startForeground(NOTIFICATION_ID, notification)
-        } else {
-            stopForeground(STOP_FOREGROUND_DETACH)
-            notificationManager.notify(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating notification: ${e.message}", e)
         }
     }
 
@@ -199,14 +274,41 @@ class MusicPlayerService : MediaSessionService() {
             .build()
     }
 
+    private lateinit var playerListener: Player.Listener
 
     /**
-     * 服务销毁时的清理工作
+     * 保存播放状态
+     * 包括当前曲目索引和播放位置
      */
-    override fun onDestroy() {
-        super.onDestroy()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        mediaSession.release()
-        player.release()
+    private fun savePlaybackState() {
+        try {
+            val currentPosition = player.currentPosition
+            val currentIndex = player.currentMediaItemIndex
+            playlistMMKV.saveLastPosition(currentPosition)
+            playlistMMKV.saveLastTrackIndex(currentIndex)
+            Log.d(TAG, "保存播放状态：索引=$currentIndex, 位置=$currentPosition")
+        } catch (e: Exception) {
+            Log.e(TAG, "保存播放状态失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 恢复播放状态
+     * 从持久化存储中恢复上次的播放位置
+     */
+    private fun restorePlaybackState() {
+        try {
+            if (player.mediaItemCount > 0) {
+                val lastIndex = playlistMMKV.getLastTrackIndex()
+                val lastPosition = playlistMMKV.getLastPosition()
+                
+                if (lastIndex in 0 until player.mediaItemCount) {
+                    player.seekTo(lastIndex, lastPosition)
+                    player.prepare()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "恢复播放状态失败: ${e.message}", e)
+        }
     }
 }

@@ -23,12 +23,27 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import top.phj233.magplay.repository.preferences.PlaylistMMKV
 import top.phj233.magplay.service.MusicPlayerService
 import java.io.ByteArrayOutputStream
 
+/**
+ * 音乐播放器视图模型
+ *
+ * 负责管理音乐播放器的状态和控制逻辑，包括：
+ * - 音乐播放控制
+ * - 播放列表管理
+ * - 音乐元数据处理
+ * - 专辑封面缓存
+ * - 播放进度保存和恢复
+ *
+ * @author phj233
+ */
+@OptIn(UnstableApi::class)
 class MusicPlayerViewModel : ViewModel(), KoinComponent {
     private val context: Context by inject()
     private val player: ExoPlayer by inject()
+    private val playlistMMKV: PlaylistMMKV by inject()
     private val artworkCache = LruCache<String, ByteArray>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt())
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -50,43 +65,90 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
     private var positionUpdateJob: Job? = null
 
     init {
+        // 启动前台服务
+        val intent = Intent(context, MusicPlayerService::class.java)
+        context.startForegroundService(intent)
+
+        // 如果播放列表为空，则加载音乐
+        if (player.mediaItemCount == 0) {
+            loadMusicFromDirectory()
+        } else {
+            // 否则直接使用现有播放列表
+            _playlist.value = List(player.mediaItemCount) { index -> player.getMediaItemAt(index) }
+        }
+
+        // 恢复播放状态
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                // 等待播放列表加载完成
+                var attempts = 0
+                while (player.mediaItemCount == 0 && attempts < 10) {
+                    delay(100)
+                    attempts++
+                }
+
+                if (player.mediaItemCount > 0) {
+                    val lastIndex = playlistMMKV.getLastTrackIndex()
+                    val lastPosition = playlistMMKV.getLastPosition()
+                    
+                    if (lastIndex in 0 until player.mediaItemCount) {
+                        player.seekTo(lastIndex, lastPosition)
+                        _currentTrack.value = player.getMediaItemAt(lastIndex)
+                    }
+                }
+
+                // 同步当前播放状态
+                _isPlaying.value = player.isPlaying
+                _currentPosition.value = player.currentPosition
+                _duration.value = player.duration.coerceAtLeast(0L)
+                _currentTrack.value = player.currentMediaItem
+            } catch (e: Exception) {
+                Log.e(TAG, "恢复播放状态失败: ${e.message}", e)
+            }
+        }
+
         player.addListener(object : Player.Listener {
-            @OptIn(UnstableApi::class)
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _isPlaying.value = playbackState == Player.STATE_READY && player.isPlaying
                 _duration.value = player.duration.coerceAtLeast(0L)
                 updatePosition()
-                
-                // Start the service when playback begins
-                if (playbackState == Player.STATE_READY && player.isPlaying) {
-                    val intent = Intent(context, MusicPlayerService::class.java)
-                    context.startForegroundService(intent)
-                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
                 updatePosition()
+                // 暂停时保存播放进度
+                if (!isPlaying) {
+                    savePlaybackState()
+                }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 _currentTrack.value = mediaItem
+                // 切换曲目时保存进度
+                savePlaybackState()
             }
         })
-        loadMusicFromDirectory()
     }
 
+    /**
+     * 从 URI 获取音乐封面
+     * 
+     * @param uri 音乐文件的 URI
+     * @param mediaId 媒体ID，用于缓存键
+     * @return 封面图片的字节数组，如果没有封面则返回 null
+     */
     private suspend fun getArtworkFromUri(uri: Uri, mediaId: String): ByteArray? = withContext(Dispatchers.IO) {
         try {
             // 先从缓存中查找
             artworkCache.get(mediaId)?.let { 
-                Log.d("MusicPlayerViewModel", "从缓存获取到封面: $mediaId")
+                Log.d(TAG, "从缓存获取到封面: $mediaId")
                 return@withContext it 
             }
 
             // 从文件中获取
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaMetadataRetriever().use { retriever -> 
+                MediaMetadataRetriever().use { retriever ->
                     retriever.setDataSource(context, uri)
                     val artwork = retriever.embeddedPicture
 
@@ -97,24 +159,25 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
 
                         // 存入缓存
                         artworkCache.put(mediaId, compressedArtwork)
-                        Log.d("MusicPlayerViewModel", "成功获取并缓存封面: $mediaId")
+                        Log.d(TAG, "成功获取并缓存封面: $mediaId")
                         compressedArtwork
                     } else {
-                        Log.d("MusicPlayerViewModel", "未找到封面: $mediaId")
+                        Log.d(TAG, "未找到封面: $mediaId")
                         null
                     }
                 }
             } else {
-                TODO("VERSION.SDK_INT < Q")
+                null
             }
         } catch (e: Exception) {
-            Log.e("MusicPlayerViewModel", "获取封面失败: ${e.message}", e)
+            Log.e(TAG, "获取封面失败: ${e.message}", e)
             null
         }
     }
 
     /**
-     * 压缩图片
+     * 压缩专辑封面图片
+     * 
      * @param bitmap 原始图片
      * @return 压缩后的图片数据
      */
@@ -136,15 +199,20 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
             bitmap
         }
 
-        ByteArrayOutputStream().use { stream -> 
+        ByteArrayOutputStream().use { stream ->
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
             return stream.toByteArray()
         }
     }
 
+    /**
+     * 添加单个音乐文件到播放列表
+     * 
+     * @param uri 音乐文件的 URI
+     */
     fun addMusic(uri: Uri) {
         viewModelScope.launch {
-            Log.d("MusicPlayerViewModel", "添加音乐: $uri")
+            Log.d(TAG, "添加音乐: $uri")
             try {
                 val mediaId = uri.toString()
                 val rawFileName = uri.lastPathSegment ?: "未知文件"
@@ -157,7 +225,7 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                 // 异步获取封面
                 val artwork = getArtworkFromUri(uri, mediaId)
                 
-                // 创建MediaItem
+                // 创建 MediaItem
                 val mediaItem = MediaItem.Builder()
                     .setUri(uri)
                     .setMediaId(mediaId)
@@ -181,13 +249,19 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                 if (!player.isPlaying) {
                     player.prepare()
                 }
-                Log.d("MusicPlayerViewModel", "成功添加音乐: $title")
+                Log.d(TAG, "成功添加音乐: $title")
             } catch (e: Exception) {
-                Log.e("MusicPlayerViewModel", "添加音乐失败: ${e.message}", e)
+                Log.e(TAG, "添加音乐失败: ${e.message}", e)
             }
         }
     }
 
+    /**
+     * 从媒体库加载音乐文件
+     * 
+     * 使用 MediaStore API 扫描设备中的音乐文件，
+     * 并将其添加到播放列表中
+     */
     fun loadMusicFromDirectory() {
         viewModelScope.launch {
             try {
@@ -196,8 +270,6 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                 val projection = arrayOf(
                     MediaStore.Audio.Media._ID,
                     MediaStore.Audio.Media.DISPLAY_NAME,
-                    MediaStore.Audio.Media.DATA,
-                    MediaStore.Audio.Media.DURATION,
                     MediaStore.Audio.Media.TITLE,
                     MediaStore.Audio.Media.ARTIST,
                     MediaStore.Audio.Media.ALBUM
@@ -206,7 +278,7 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                 val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
                 val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
                 
-                Log.d("MusicPlayerViewModel", "开始扫描音乐")
+                Log.d(TAG, "开始扫描音乐")
                 context.contentResolver.query(
                     collection,
                     projection,
@@ -214,7 +286,7 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                     null,
                     sortOrder
                 )?.use { cursor -> 
-                    Log.d("MusicPlayerViewModel", "找到 ${cursor.count} 个音乐文件")
+                    Log.d(TAG, "找到 ${cursor.count} 个音乐文件")
                     
                     val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                     val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -252,10 +324,10 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                                     )
                                     .build()
                                 mediaItems.add(mediaItem)
-                                Log.d("MusicPlayerViewModel", "添加歌曲: ${title ?: displayName}")
+                                Log.d(TAG, "添加歌曲: ${title ?: displayName}")
                             }
                         } catch (e: Exception) {
-                            Log.e("MusicPlayerViewModel", "处理音乐文件失败", e)
+                            Log.e(TAG, "处理音乐文件失败", e)
                             continue
                         }
                     }
@@ -265,21 +337,34 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                     _playlist.value = mediaItems
                     player.setMediaItems(mediaItems)
                     player.prepare()
-                    Log.d("MusicPlayerViewModel", "成功加载 ${mediaItems.size} 首歌曲")
+                    // 恢复上次播放位置
+                    restorePlaybackState()
+                    Log.d(TAG, "成功加载 ${mediaItems.size} 首歌曲")
                 } else {
-                    Log.w("MusicPlayerViewModel", "未找到音乐文件")
+                    Log.w(TAG, "未找到音乐文件")
                 }
             } catch (e: Exception) {
-                Log.e("MusicPlayerViewModel", "加载音乐失败: ${e.message}", e)
+                Log.e(TAG, "加载音乐失败: ${e.message}", e)
             }
         }
     }
 
+    /**
+     * 检查文件是否为支持的音频格式
+     * 
+     * @param fileName 文件名
+     * @return 如果是支持的格式返回 true，否则返回 false
+     */
     private fun isSupportedAudioFormat(fileName: String): Boolean {
         val supportedFormats = setOf(".mp3", ".wav", ".m4a", ".flac", ".aac")
         return supportedFormats.any { fileName.lowercase().endsWith(it) }
     }
 
+    /**
+     * 更新播放位置
+     * 
+     * 当音乐正在播放时，每秒更新一次当前播放位置
+     */
     private fun updatePosition() {
         positionUpdateJob?.cancel()
         if (_isPlaying.value) {
@@ -292,47 +377,147 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
         }
     }
 
-
+    /**
+     * 播放或暂停当前曲目
+     */
     fun playPause() {
-        if (player.isPlaying) {
-            player.pause()
-        } else {
-            player.play()
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                if (player.isPlaying) {
+                    player.pause()
+                } else {
+                    player.play()
+                }
+                // 确保服务保持运行
+                val intent = Intent(context, MusicPlayerService::class.java)
+                context.startForegroundService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "播放控制失败: ${e.message}", e)
+            }
         }
     }
 
-    fun skipToNext() {
-        if (player.hasNextMediaItem()) {
-            player.seekToNext()
+    /**
+     * 播放下一曲
+     */
+    fun playNext() {
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                if (player.hasNextMediaItem()) {
+                    player.seekToNext()
+                    // 确保服务保持运行
+                    val intent = Intent(context, MusicPlayerService::class.java)
+                    context.startForegroundService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "播放下一曲失败: ${e.message}", e)
+            }
         }
     }
 
-    fun skipToPrevious() {
-        if (player.hasPreviousMediaItem()) {
-            player.seekToPrevious()
+    /**
+     * 播放上一曲
+     */
+    fun playPrevious() {
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                if (player.hasPreviousMediaItem()) {
+                    player.seekToPrevious()
+                    // 确保服务保持运行
+                    val intent = Intent(context, MusicPlayerService::class.java)
+                    context.startForegroundService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "播放上一曲失败: ${e.message}", e)
+            }
         }
     }
 
+    /**
+     * 跳转到指定播放位置
+     * 
+     * @param position 目标位置（毫秒）
+     */
     fun seekTo(position: Long) {
-        player.seekTo(position)
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                player.seekTo(position)
+            } catch (e: Exception) {
+                Log.e(TAG, "跳转播放位置失败: ${e.message}", e)
+            }
+        }
     }
 
+    /**
+     * 播放指定索引的曲目
+     * 
+     * @param index 播放列表中的曲目索引
+     */
     fun playTrack(index: Int) {
         if (index in 0 until player.mediaItemCount) {
-            player.seekTo(index, 0)
-            player.prepare()
-            player.play()
-            Log.d("MusicPlayerViewModel", "开始播放曲目: ${_playlist.value[index].mediaMetadata.title}")
+            viewModelScope.launch(Dispatchers.Main) {
+                try {
+                    player.seekTo(index, 0)
+                    player.prepare()
+                    player.play()
+                    // 确保服务保持运行
+                    val intent = Intent(context, MusicPlayerService::class.java)
+                    context.startForegroundService(intent)
+                    Log.d(TAG, "开始播放曲目: ${_playlist.value[index].mediaMetadata.title}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "播放失败: ${e.message}", e)
+                }
+            }
         } else {
-            Log.w("MusicPlayerViewModel", "无效的播放索引: $index")
+            Log.w(TAG, "无效的播放索引: $index")
+        }
+    }
+
+    /**
+     * 保存播放状态
+     * 包括当前曲目索引和播放位置
+     */
+    private fun savePlaybackState() {
+        try {
+            val currentPosition = player.currentPosition
+            val currentIndex = player.currentMediaItemIndex
+            playlistMMKV.saveLastPosition(currentPosition)
+            playlistMMKV.saveLastTrackIndex(currentIndex)
+            Log.d(TAG, "保存播放状态：索引=$currentIndex, 位置=$currentPosition")
+        } catch (e: Exception) {
+            Log.e(TAG, "保存播放状态失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 恢复播放状态
+     * 从持久化存储中恢复上次的播放位置
+     */
+    private fun restorePlaybackState() {
+        try {
+            val lastIndex = playlistMMKV.getLastTrackIndex()
+            val lastPosition = playlistMMKV.getLastPosition()
+            
+            if (lastIndex in 0 until player.mediaItemCount) {
+                player.seekTo(lastIndex, lastPosition)
+                Log.d(TAG, "恢复播放状态：索引=$lastIndex, 位置=$lastPosition")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "恢复播放状态失败: ${e.message}", e)
         }
     }
 
     override fun onCleared() {
         super.onCleared()
+        // 保存最后的播放状态
+        savePlaybackState()
         positionUpdateJob?.cancel()
         coroutineScope.cancel()
         player.release()
         artworkCache.evictAll()
+    }
+
+    companion object {
+        private const val TAG = "MusicPlayerViewModel"
     }
 }

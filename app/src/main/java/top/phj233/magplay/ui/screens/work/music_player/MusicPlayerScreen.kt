@@ -146,7 +146,7 @@ fun MusicPlayerScreen() {
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { viewModel.skipToPrevious() }) {
+                    IconButton(onClick = { viewModel.playPrevious() }) {
                         Icon(Icons.Default.SkipPrevious, "上一曲")
                     }
                     IconButton(onClick = { viewModel.playPause() }) {
@@ -155,7 +155,7 @@ fun MusicPlayerScreen() {
                             if (isPlaying) "暂停" else "播放"
                         )
                     }
-                    IconButton(onClick = { viewModel.skipToNext() }) {
+                    IconButton(onClick = { viewModel.playNext() }) {
                         Icon(Icons.Default.SkipNext, "下一曲")
                     }
                 }

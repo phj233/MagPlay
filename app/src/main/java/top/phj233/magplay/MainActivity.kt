@@ -1,9 +1,14 @@
 package top.phj233.magplay
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,14 +18,30 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.media3.common.util.UnstableApi
+import top.phj233.magplay.service.MusicPlayerService
 
+@UnstableApi
 class MainActivity : ComponentActivity() {
+    private var bound = false
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            bound = true
+            Log.d(TAG, "Service connected")
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            bound = false
+            Log.d(TAG, "Service disconnected")
+        }
+    }
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.entries.all { it.value }
         if (allGranted) {
-            // 所有权限都已授予，可以继续操作
+            startAndBindService()
         } else {
             // 部分权限被拒绝，可以显示提示或采取其他措施
         }
@@ -40,6 +61,28 @@ class MainActivity : ComponentActivity() {
             ) {
                 App()
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!bound) {
+            startAndBindService()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (bound) {
+            unbindService(serviceConnection)
+            bound = false
+        }
+    }
+
+    private fun startAndBindService() {
+        Intent(this, MusicPlayerService::class.java).also { intent ->
+            startForegroundService(intent)
+            bindService(intent, serviceConnection, BIND_AUTO_CREATE)
         }
     }
 
@@ -64,6 +107,12 @@ class MainActivity : ComponentActivity() {
 
         if (permissionsToRequest.isNotEmpty()) {
             requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            startAndBindService()
         }
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
     }
 }
