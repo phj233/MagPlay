@@ -4,91 +4,94 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Build
-import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper.MediaStyle
 import org.koin.android.ext.android.inject
 import top.phj233.magplay.MainActivity
 import top.phj233.magplay.R
 
+/**
+ * 音乐播放服务
+ *
+ * 该服务负责管理音乐播放的核心功能，包括：
+ * - 音频播放控制
+ * - 通知栏管理
+ * - 媒体会话控制
+ * - 前台服务维护
+ *
+ * 主要组件：
+ * - ExoPlayer：用于音频播放
+ * - MediaSession：处理媒体会话
+ * - NotificationManager：管理通知栏显示
+ *
+ * @author phj233
+ */
 @UnstableApi
-class MusicPlayerService : Service() {
+class MusicPlayerService : MediaSessionService() {
     private val player: ExoPlayer by inject()
+    private val mediaSession: MediaSession by inject()
     private val notificationManager by lazy {
         getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     }
-    private var notificationId = 1
-    private val channelId = "music_playback_channel"
-    private lateinit var mediaSession: MediaSession
 
     companion object {
-        private const val ACTION_PLAY = "top.phj233.magplay.action.PLAY"
-        private const val ACTION_PAUSE = "top.phj233.magplay.action.PAUSE"
-        private const val ACTION_NEXT = "top.phj233.magplay.action.NEXT"
-        private const val ACTION_PREVIOUS = "top.phj233.magplay.action.PREVIOUS"
+        private const val CHANNEL_ID = "music_playback_channel"
+        private const val NOTIFICATION_ID = 1
+        /**
+         * 播放控制动作常量
+         */
+        const val ACTION_PLAY = "top.phj233.magplay.action.PLAY"
+        const val ACTION_PAUSE = "top.phj233.magplay.action.PAUSE"
+        const val ACTION_NEXT = "top.phj233.magplay.action.NEXT"
+        const val ACTION_PREVIOUS = "top.phj233.magplay.action.PREVIOUS"
     }
 
+    /**
+     * 服务创建时的初始化
+     * 创建通知渠道并设置播放器监听器
+     */
     override fun onCreate() {
         super.onCreate()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            createNotificationChannel()
-        }
-        initializeMediaSession()
+        createNotificationChannel()
+        setupPlayerListener()
+        // 立即显示通知
+        startForeground(NOTIFICATION_ID, createNotification())
+    }
 
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    /**
+     * 设置播放器状态监听
+     * 监听播放状态变化和媒体项切换
+     */
+    private fun setupPlayerListener() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) {
-                    startForeground(notificationId, createNotification())
-                } else {
-                    stopForeground(
-                        STOP_FOREGROUND_DETACH
-                    )
-                    notificationManager.notify(notificationId, createNotification())
-                }
+                updateNotificationState()
             }
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                if (player.isPlaying) {
-                    notificationManager.notify(notificationId, createNotification())
-                }
+                updateNotificationState()
             }
         })
     }
 
-    private fun initializeMediaSession() {
-        mediaSession = MediaSession.Builder(this, player)
-            .setId("MagPlaySession")
-            .build()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_PLAY -> player.play()
-            ACTION_PAUSE -> player.pause()
-            ACTION_NEXT -> player.seekToNext()
-            ACTION_PREVIOUS -> player.seekToPrevious()
-            else -> {
-                // 如果没有特定动作，但播放器正在播放，则显示通知
-                if (player.isPlaying) {
-                    startForeground(notificationId, createNotification())
-                }
-            }
-        }
-        return START_STICKY
-    }
-
+    /**
+     * 创建通知渠道
+     * 适配 Android O 及以上版本
+     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                channelId,
+                CHANNEL_ID,
                 "音乐播放",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
@@ -99,13 +102,32 @@ class MusicPlayerService : Service() {
         }
     }
 
+    /**
+     * 更新通知状态
+     * 根据播放状态更新前台服务通知
+     */
+    private fun updateNotificationState() {
+        val notification = createNotification()
+        if (player.isPlaying) {
+            startForeground(NOTIFICATION_ID, notification)
+        } else {
+            stopForeground(STOP_FOREGROUND_DETACH)
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        }
+    }
+
+    /**
+     * 创建通知
+     * 构建包含媒体控制的通知
+     *
+     * @return 包含媒体控制的通知对象
+     */
     private fun createNotification(): Notification {
         val currentItem = player.currentMediaItem
         val title = currentItem?.mediaMetadata?.title ?: "未知标题"
         val artist = currentItem?.mediaMetadata?.artist ?: "未知艺术家"
         val albumTitle = currentItem?.mediaMetadata?.albumTitle ?: "未知专辑"
 
-        // 创建通知的点击意图
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -114,7 +136,6 @@ class MusicPlayerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 创建媒体控制按钮的意图
         val playPauseIntent = PendingIntent.getService(
             this, 0,
             Intent(this, MusicPlayerService::class.java).apply {
@@ -139,13 +160,11 @@ class MusicPlayerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 获取专辑封面
         val artwork = currentItem?.mediaMetadata?.artworkData?.let { data ->
             BitmapFactory.decodeByteArray(data, 0, data.size)
         }
 
-        // 构建通知
-        return NotificationCompat.Builder(this, channelId)
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText("$artist - $albumTitle")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -156,31 +175,38 @@ class MusicPlayerService : Service() {
             .setOngoing(player.isPlaying)
             .setAutoCancel(false)
             .addAction(
-                R.drawable.ic_launcher_foreground,
+                androidx.media3.session.R.drawable.media3_notification_small_icon,
                 "上一曲",
                 previousIntent
             )
             .addAction(
-                if (player.isPlaying) R.drawable.ic_launcher_foreground else R.drawable.ic_launcher_foreground,
+                if (player.isPlaying)
+                    androidx.media3.session.R.drawable.media3_icon_pause
+                else 
+                    androidx.media3.session.R.drawable.media3_icon_play,
                 if (player.isPlaying) "暂停" else "播放",
                 playPauseIntent
             )
             .addAction(
-                R.drawable.ic_launcher_foreground,
+                androidx.media3.session.R.drawable.media3_notification_small_icon,
                 "下一曲",
                 nextIntent
             )
-            .setStyle(MediaStyle(mediaSession)
-                .setShowActionsInCompactView(0, 1, 2)
+            .setStyle(
+                MediaStyle(mediaSession)
+                    .setShowActionsInCompactView(0, 1, 2)
             )
             .build()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * 服务销毁时的清理工作
+     */
     override fun onDestroy() {
         super.onDestroy()
-        mediaSession.release()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        mediaSession.release()
+        player.release()
     }
 }

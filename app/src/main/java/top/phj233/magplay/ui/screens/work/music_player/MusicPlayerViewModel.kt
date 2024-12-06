@@ -1,6 +1,7 @@
 package top.phj233.magplay.ui.screens.work.music_player
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -9,17 +10,20 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.util.LruCache
+import androidx.annotation.OptIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import top.phj233.magplay.service.MusicPlayerService
 import java.io.ByteArrayOutputStream
 
 class MusicPlayerViewModel : ViewModel(), KoinComponent {
@@ -47,10 +51,17 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
 
     init {
         player.addListener(object : Player.Listener {
+            @OptIn(UnstableApi::class)
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _isPlaying.value = playbackState == Player.STATE_READY && player.isPlaying
                 _duration.value = player.duration.coerceAtLeast(0L)
                 updatePosition()
+                
+                // Start the service when playback begins
+                if (playbackState == Player.STATE_READY && player.isPlaying) {
+                    val intent = Intent(context, MusicPlayerService::class.java)
+                    context.startForegroundService(intent)
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -75,7 +86,7 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
 
             // 从文件中获取
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaMetadataRetriever().use { retriever ->
+                MediaMetadataRetriever().use { retriever -> 
                     retriever.setDataSource(context, uri)
                     val artwork = retriever.embeddedPicture
 
@@ -125,7 +136,7 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
             bitmap
         }
 
-        ByteArrayOutputStream().use { stream ->
+        ByteArrayOutputStream().use { stream -> 
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
             return stream.toByteArray()
         }
@@ -202,11 +213,10 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                     selection,
                     null,
                     sortOrder
-                )?.use { cursor ->
+                )?.use { cursor -> 
                     Log.d("MusicPlayerViewModel", "找到 ${cursor.count} 个音乐文件")
                     
                     val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                    val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
                     val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                     val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                     val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
@@ -215,14 +225,14 @@ class MusicPlayerViewModel : ViewModel(), KoinComponent {
                     while (cursor.moveToNext()) {
                         try {
                             val id = cursor.getLong(idColumn)
-                            val path = cursor.getString(dataColumn)
                             val title = cursor.getString(titleColumn)
                             val artist = cursor.getString(artistColumn)
                             val album = cursor.getString(albumColumn)
                             val displayName = cursor.getString(displayNameColumn)
                             
+                            val contentUri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString())
+                            
                             if (isSupportedAudioFormat(displayName)) {
-                                val contentUri = Uri.withAppendedPath(collection, id.toString())
                                 val mediaId = id.toString()
                                 
                                 // 异步获取封面
