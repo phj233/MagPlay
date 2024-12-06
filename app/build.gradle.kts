@@ -108,9 +108,10 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
-    // kion
+    // koin
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
+    implementation(libs.koin.compose.viewmodel)
     implementation(libs.koin.core)
     // libtorrent4j
     implementation(libs.libtorrent4j.android.arm)

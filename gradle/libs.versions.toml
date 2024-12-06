@@ -55,6 +55,7 @@ libtorrent4j-android-x64 = { group = "org.libtorrent4j", name = "libtorrent4j-an
 # koin
 koin-core = { group = "io.insert-koin", name = "koin-core", version.ref = "koin-bom" }
 koin-compose = { group = "io.insert-koin", name = "koin-compose", version.ref = "koin-bom" }
+koin-compose-viewmodel = { group = "io.insert-koin", name = "koin-compose-viewmodel", version.ref = "koin-bom" }
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin-bom" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 # ktor
