@@ -7,7 +7,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,14 +18,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,17 +36,18 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import org.koin.compose.viewmodel.koinViewModel
 import top.phj233.magplay.nav.LocalNavController
 import top.phj233.magplay.nav.navParse
-import top.phj233.magplay.torrent.TorrentState
+import top.phj233.magplay.ui.screens.magnet.ParseViewModel
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 @Composable
 fun SearchScreen() {
-    val viewModel = viewModel<SearchViewModel>()
     val context = LocalContext.current
     val nav = LocalNavController.current
-    val torrentState by viewModel.torrentState.collectAsState()
+    val parseViewModel: ParseViewModel = koinViewModel()
     
     LaunchedEffect(Unit) {
         val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -57,42 +55,21 @@ fun SearchScreen() {
         val clipText = clipData?.getItemAt(0)?.text?.toString() ?: ""
         
         if (clipText.startsWith("magnet:")) {
-            viewModel.parseMagnet(clipText)
+            Log.d("SearchScreen", "clipboard: $clipText")
+            val encodedMagnet = URLEncoder.encode(clipText, StandardCharsets.UTF_8.toString())
+            nav.navParse(encodedMagnet)
         }
     }
 
-    when (val state = torrentState) {
-        is TorrentState.Parsing -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        }
-        is TorrentState.Success -> {
-            LaunchedEffect(Unit) {
-                nav.navParse(state.info.infoHash)
-            }
-        }
-        is TorrentState.Error -> {
-            LaunchedEffect(state) {
-                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
-            }
-            SearchInput(context,onSubmit = { magnetLink ->
-                viewModel.parseMagnet(magnetLink)
-            })
-        }
-        else -> {
-            SearchInput(context,onSubmit = { magnetLink ->
-                viewModel.parseMagnet(magnetLink)
-            })
-        }
+    SearchInput(context) { magnetLink ->
+        Log.d("SearchScreen", "onSubmit: $magnetLink")
+        val encodedMagnet = URLEncoder.encode(magnetLink, StandardCharsets.UTF_8.toString())
+        nav.navParse(encodedMagnet)
     }
 }
 
 @Composable
-private fun SearchInput(context: Context,onSubmit: (String) -> Unit) {
+private fun SearchInput(context: Context, onSubmit: (String) -> Unit) {
     var inputText by remember { mutableStateOf(TextFieldValue("")) }
     
     Scaffold { paddingValues ->
@@ -129,7 +106,7 @@ private fun SearchInput(context: Context,onSubmit: (String) -> Unit) {
                     Log.d("SearchScreen", "onSubmit: ${inputText.text}")
                     if (inputText.text.startsWith("magnet:")) {
                         onSubmit(inputText.text)
-                    }else {
+                    } else {
                         Toast.makeText(context, "请输入正确的磁力链接", Toast.LENGTH_SHORT).show()
                     }
                 },

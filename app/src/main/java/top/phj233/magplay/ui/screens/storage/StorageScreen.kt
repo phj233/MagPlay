@@ -1,6 +1,7 @@
 package top.phj233.magplay.ui.screens.storage
 
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -38,7 +39,9 @@ fun StorageScreen(
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        uri?.let { 
+        uri?.let {
+            it.path
+            Log.d("doc", it.path.toString())
             viewModel.setSelectedUri(it)
             onStorageSelected()
         }

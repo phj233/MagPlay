@@ -8,15 +8,16 @@ import androidx.media3.session.MediaSession
 import com.tencent.mmkv.MMKV
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
-import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 import top.phj233.magplay.repository.preferences.PlaylistMMKV
 import top.phj233.magplay.repository.preferences.SettingsMMKV
+import top.phj233.magplay.ui.screens.magnet.ParseViewModel
 import top.phj233.magplay.ui.screens.storage.StorageViewModel
+import top.phj233.magplay.ui.screens.video.VideoPlayerViewModel
 import top.phj233.magplay.ui.screens.work.music_player.MusicPlayerViewModel
 
-/**
+ /**
  * 应用程序依赖注入模块
  *
  * 负责提供应用程序级别的依赖项，包括：
@@ -42,6 +43,9 @@ val appModule = module {
     singleOf(::SettingsMMKV)
     singleOf(::PlaylistMMKV)
     viewModelOf(::StorageViewModel)
+    viewModelOf(::MusicPlayerViewModel)
+    viewModelOf(::ParseViewModel)
+    viewModelOf(::VideoPlayerViewModel)
 
     /**
      * ExoPlayer单例配置

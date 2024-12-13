@@ -1,6 +1,5 @@
 package top.phj233.magplay.torrent
 
-
 sealed class TorrentState {
     data object Idle : TorrentState()
     data object Parsing : TorrentState()
