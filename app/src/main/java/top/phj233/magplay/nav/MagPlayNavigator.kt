@@ -1,6 +1,5 @@
 package top.phj233.magplay.nav
 
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -121,7 +120,6 @@ fun MagPlayNavHost(){
             composable("$MAGNET_PARSE/{magnetLink}") { backStackEntry ->
                 val magnetLink = backStackEntry.arguments?.getString("magnetLink")
                 requireNotNull(magnetLink) { "磁力链接不能为空" }
-                Log.d("MagPlayNavHost", "magnetLink: $magnetLink")
                 ParsePage(magnetLink)
             }
         }

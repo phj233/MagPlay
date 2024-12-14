@@ -12,6 +12,7 @@ import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 import top.phj233.magplay.repository.preferences.PlaylistMMKV
 import top.phj233.magplay.repository.preferences.SettingsMMKV
+import top.phj233.magplay.torrent.TorrentSession
 import top.phj233.magplay.ui.screens.magnet.ParseViewModel
 import top.phj233.magplay.ui.screens.storage.StorageViewModel
 import top.phj233.magplay.ui.screens.video.VideoPlayerViewModel
@@ -40,18 +41,26 @@ val appModule = module {
         MMKV.defaultMMKV()
     }
     
-    singleOf(::SettingsMMKV)
+    // 存储相关
+     singleOf(::SettingsMMKV)
+     viewModelOf(::StorageViewModel)
+
     singleOf(::PlaylistMMKV)
-    viewModelOf(::StorageViewModel)
     viewModelOf(::MusicPlayerViewModel)
+
     viewModelOf(::ParseViewModel)
     viewModelOf(::VideoPlayerViewModel)
+
+     // torrent
+     single{
+            TorrentSession()
+     }
 
     /**
      * ExoPlayer单例配置
      * 配置音频属性和使用场景
      */
-    single(createdAtStart = true) {
+    single {
         ExoPlayer.Builder(androidContext())
             .setAudioAttributes(
                 AudioAttributes.Builder()

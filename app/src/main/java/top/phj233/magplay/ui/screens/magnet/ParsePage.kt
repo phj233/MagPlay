@@ -1,5 +1,9 @@
 package top.phj233.magplay.ui.screens.magnet
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.text.format.Formatter.formatFileSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,11 +30,52 @@ fun ParsePage(
 ) {
     val viewModel: ParseViewModel = koinViewModel()
     val torrentState by viewModel.torrentState.collectAsState()
+    val permissionNeeded by viewModel.permissionNeeded.collectAsState()
+    val storagePermissionGranted by viewModel.storagePermissionGranted.collectAsState()
     val context = LocalContext.current
     val decodedMagnet = URLDecoder.decode(magnetLink, StandardCharsets.UTF_8.toString())
 
     LaunchedEffect(decodedMagnet) {
         viewModel.parseMagnet(decodedMagnet)
+    }
+
+    // 权限请求对话框
+    if (permissionNeeded) {
+        AlertDialog(
+            onDismissRequest = { /* 不允许用户关闭对话框 */ },
+            title = { Text("需要存储权限") },
+            text = { Text("为了下载文件，我们需要存储权限。请在设置中授予权限。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            context.startActivity(
+                                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                            )
+                        } else {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Text("前往设置")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.checkStoragePermission()
+                    }
+                ) {
+                    Text("检查权限")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -99,11 +144,6 @@ fun ParsePage(
                             text = state.message,
                             style = MaterialTheme.typography.bodyMedium
                         )
-                        Button(
-                            onClick = { viewModel.parseMagnet(decodedMagnet) }
-                        ) {
-                            Text("重试")
-                        }
                     }
                 }
             }
@@ -118,7 +158,9 @@ private fun TorrentInfoCard(info: MagPlayTorrentInfo) {
             .fillMaxWidth()
             .padding(16.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
             Text(
                 text = info.name,
                 style = MaterialTheme.typography.titleLarge
@@ -128,13 +170,10 @@ private fun TorrentInfoCard(info: MagPlayTorrentInfo) {
                 text = "总大小: ${formatFileSize(LocalContext.current, info.totalSize)}",
                 style = MaterialTheme.typography.bodyMedium
             )
-            info.comment?.let {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "备注: $it",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+            Text(
+                text = "文件数: ${info.numFiles}",
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
@@ -148,14 +187,32 @@ private fun TorrentFileCard(
 ) {
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val downloadSpeed by viewModel.downloadSpeed.collectAsState()
+    val uploadSpeed by viewModel.uploadSpeed.collectAsState()
     val fileIndex = (viewModel.torrentState.value as? TorrentState.Success)?.info?.files?.indexOf(file) ?: -1
     val isDownloading = fileIndex != -1 && downloadProgress.containsKey(fileIndex)
+    var showErrorDialog by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+
+    // 错误对话框
+    if (showErrorDialog) {
+        AlertDialog(
+            onDismissRequest = { showErrorDialog = false },
+            title = { Text("下载错误") },
+            text = { Text(errorMessage) },
+            confirmButton = {
+                TextButton(onClick = { showErrorDialog = false }) {
+                    Text("确定")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
+        val fileDir = TorrentManager.getDownloadDirectory()
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -180,10 +237,19 @@ private fun TorrentFileCard(
                             progress = downloadProgress[fileIndex]!! / 100f,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Text(
-                            text = "下载速度: ${formatFileSize(LocalContext.current, downloadSpeed[fileIndex]!!)}/s",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "下载: ${formatFileSize(LocalContext.current, downloadSpeed[fileIndex]!!)}/s",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "上传: ${formatFileSize(LocalContext.current, uploadSpeed[fileIndex]!!)}/s",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
 
@@ -192,7 +258,12 @@ private fun TorrentFileCard(
                     // 下载按钮
                     IconButton(
                         onClick = {
-                            //TODO: 下载文件
+                            try {
+                                viewModel.startDownload(magnetLink, fileIndex)
+                            } catch (e: Exception) {
+                                errorMessage = e.message ?: "下载失败"
+                                showErrorDialog = true
+                            }
                         },
                         enabled = !isDownloading
                     ) {
