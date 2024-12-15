@@ -18,9 +18,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +43,7 @@ import top.phj233.magplay.ui.screens.magnet.ParseViewModel
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen() {
     val context = LocalContext.current
@@ -60,11 +61,12 @@ fun SearchScreen() {
             nav.navParse(encodedMagnet)
         }
     }
-
-    SearchInput(context) { magnetLink ->
+    Column {
+        SearchInput(context) { magnetLink ->
         Log.d("SearchScreen", "onSubmit: $magnetLink")
         val encodedMagnet = URLEncoder.encode(magnetLink, StandardCharsets.UTF_8.toString())
         nav.navParse(encodedMagnet)
+        }
     }
 }
 
@@ -72,10 +74,8 @@ fun SearchScreen() {
 private fun SearchInput(context: Context, onSubmit: (String) -> Unit) {
     var inputText by remember { mutableStateOf(TextFieldValue("")) }
     
-    Scaffold { paddingValues ->
         Column(
             modifier = Modifier
-                .padding(paddingValues)
                 .fillMaxSize()
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -115,7 +115,6 @@ private fun SearchInput(context: Context, onSubmit: (String) -> Unit) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "提交")
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "提交")
-            }
         }
     }
 }

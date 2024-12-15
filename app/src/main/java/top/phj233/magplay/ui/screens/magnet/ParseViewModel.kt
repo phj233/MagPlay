@@ -1,12 +1,7 @@
 package top.phj233.magplay.ui.screens.magnet
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Environment
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,15 +28,8 @@ class ParseViewModel(
     private val _uploadSpeed = MutableStateFlow<Map<Int, Long>>(emptyMap())
     val uploadSpeed: StateFlow<Map<Int, Long>> = _uploadSpeed
 
-    private val _permissionNeeded = MutableStateFlow(false)
-    val permissionNeeded: StateFlow<Boolean> = _permissionNeeded
-
-    private val _storagePermissionGranted = MutableStateFlow(false)
-    val storagePermissionGranted: StateFlow<Boolean> = _storagePermissionGranted
-
-    init {
-        checkStoragePermission()
-    }
+    private val _videoPath = MutableStateFlow<String?>(null)
+    val videoPath: StateFlow<String?> = _videoPath
 
     fun parseMagnet(magnetLink: String) {
         viewModelScope.launch {
@@ -60,33 +48,11 @@ class ParseViewModel(
     }
 
     /**
-     * 检查是否有必要的存储权限
-     */
-    fun checkStoragePermission() {
-        val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        }
-        _storagePermissionGranted.value = hasPermission
-        if (!hasPermission) {
-            _permissionNeeded.value = true
-        }
-    }
-
-    /**
      * 开始下载文件
      * @param magnetLink 磁力链接
      * @param fileIndex 文件索引
      */
     fun startDownload(magnetLink: String, fileIndex: Int) {
-        if (!_storagePermissionGranted.value) {
-            _permissionNeeded.value = true
-            return
-        }
 
         viewModelScope.launch {
             try {
@@ -101,11 +67,9 @@ class ParseViewModel(
                     magnetUrl = magnetLink,
                     fileIndex = fileIndex,
                     onProgress = { progress ->
-                        Log.d("ParseViewModel", "Download progress: $progress")
                         _downloadProgress.value = _downloadProgress.value + (fileIndex to progress)
                     },
                     onSpeed = { downloadSpeed, uploadSpeed ->
-                        Log.d("ParseViewModel", "Download speed: $downloadSpeed, Upload speed: $uploadSpeed")
                         _downloadSpeed.value = _downloadSpeed.value + (fileIndex to downloadSpeed)
                         _uploadSpeed.value = _uploadSpeed.value + (fileIndex to uploadSpeed)
                     }
@@ -119,6 +83,43 @@ class ParseViewModel(
                 _torrentState.value = TorrentState.Error(e.message ?: "下载失败")
             }
         }
+    }
+
+    /**
+     * 开始流式播放视频
+     * @param magnetLink 磁力链接
+     * @param fileIndex 文件索引
+     */
+    fun startVideoStream(magnetLink: String, fileIndex: Int) {
+        viewModelScope.launch {
+            try {
+                TorrentManager.streamVideo(
+                    magnetUrl = magnetLink,
+                    fileIndex = fileIndex,
+                    onProgress = { progress ->
+                        _downloadProgress.value = _downloadProgress.value + (fileIndex to progress)
+                    },
+                    onSpeed = { downloadSpeed, uploadSpeed ->
+                        _downloadSpeed.value = _downloadSpeed.value + (fileIndex to downloadSpeed)
+                        _uploadSpeed.value = _uploadSpeed.value + (fileIndex to uploadSpeed)
+                    },
+                    onReady = { path ->
+                        _videoPath.value = path
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ParseViewModel", "流媒体播放失败", e)
+                _torrentState.value = TorrentState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    /**
+     * 停止视频流播放
+     */
+    fun stopVideoStream() {
+        TorrentManager.stopStreaming()
+        _videoPath.value = null
     }
 
     override fun onCleared() {

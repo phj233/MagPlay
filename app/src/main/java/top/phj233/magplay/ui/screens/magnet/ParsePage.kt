@@ -1,10 +1,7 @@
 package top.phj233.magplay.ui.screens.magnet
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import android.text.format.Formatter.formatFileSize
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,9 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import top.phj233.magplay.nav.LocalNavController
+import top.phj233.magplay.nav.navVideoPlayer
 import top.phj233.magplay.torrent.*
 import top.phj233.magplay.ui.components.MagPlayTopBar
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 @Composable
@@ -30,52 +30,11 @@ fun ParsePage(
 ) {
     val viewModel: ParseViewModel = koinViewModel()
     val torrentState by viewModel.torrentState.collectAsState()
-    val permissionNeeded by viewModel.permissionNeeded.collectAsState()
-    val storagePermissionGranted by viewModel.storagePermissionGranted.collectAsState()
-    val context = LocalContext.current
+    val nav = LocalNavController.current
     val decodedMagnet = URLDecoder.decode(magnetLink, StandardCharsets.UTF_8.toString())
 
     LaunchedEffect(decodedMagnet) {
         viewModel.parseMagnet(decodedMagnet)
-    }
-
-    // 权限请求对话框
-    if (permissionNeeded) {
-        AlertDialog(
-            onDismissRequest = { /* 不允许用户关闭对话框 */ },
-            title = { Text("需要存储权限") },
-            text = { Text("为了下载文件，我们需要存储权限。请在设置中授予权限。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            context.startActivity(
-                                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                            )
-                        } else {
-                            context.startActivity(
-                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                            )
-                        }
-                    }
-                ) {
-                    Text("前往设置")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.checkStoragePermission()
-                    }
-                ) {
-                    Text("检查权限")
-                }
-            }
-        )
     }
 
     Scaffold(
@@ -120,7 +79,10 @@ fun ParsePage(
                         TorrentFileCard(
                             file = file,
                             magnetLink = decodedMagnet,
-                            onPlayClick = onNavigateToPlayer,
+                            onPlayClick = { fileIndex ->
+                                Log.d("ParsePage", "Starting video playback for file index: $fileIndex")
+                                nav.navVideoPlayer(URLEncoder.encode(decodedMagnet, StandardCharsets.UTF_8.toString()), fileIndex)
+                            },
                             viewModel = viewModel
                         )
                     }
@@ -182,7 +144,7 @@ private fun TorrentInfoCard(info: MagPlayTorrentInfo) {
 private fun TorrentFileCard(
     file: TorrentFile,
     magnetLink: String,
-    onPlayClick: (String) -> Unit,
+    onPlayClick: (Int) -> Unit,
     viewModel: ParseViewModel = koinViewModel()
 ) {
     val downloadProgress by viewModel.downloadProgress.collectAsState()
@@ -212,7 +174,6 @@ private fun TorrentFileCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        val fileDir = TorrentManager.getDownloadDirectory()
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -280,7 +241,7 @@ private fun TorrentFileCard(
                         file.name.endsWith(".mkv", ignoreCase = true) ||
                         file.name.endsWith(".avi", ignoreCase = true)) {
                         IconButton(
-                            onClick = { onPlayClick("$magnetLink#$fileIndex") }
+                            onClick = { onPlayClick(fileIndex) }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
