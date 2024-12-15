@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
 import org.libtorrent4j.AlertListener
+import org.libtorrent4j.Priority
+import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.alerts.Alert
 import org.libtorrent4j.alerts.AlertType
 import org.libtorrent4j.alerts.MetadataReceivedAlert
@@ -28,6 +30,9 @@ object TorrentManager {
     private val context by lazy { GlobalContext.get().get<Context>() }
     private val torrentSession by lazy { TorrentSession.getInstance() }
 
+    private var currentPlayingHandle: TorrentHandle? = null
+    private var currentPlayingFileIndex: Int = -1
+    private var hasCalledOnReady = false
 
     suspend fun magnetLinkParser(magnetLink: String): Result<MagPlayTorrentInfo> = withContext(Dispatchers.IO) {
         try {
@@ -186,7 +191,7 @@ object TorrentManager {
         val newMagnet = mergeTracker(URLDecoder.decode(magnetUrl,"UTF-8"), getTrackerList())
         Log.d("TorrentDownload", "开始下载种子文件: $newMagnet, fileIndex: $fileIndex")
         val session = torrentSession.createSession()
-        
+
         // 添加下载监听器
         val listener = object : AlertListener {
             override fun types(): IntArray? = null
@@ -194,15 +199,31 @@ object TorrentManager {
             override fun alert(alert: Alert<*>?) {
                 when (alert) {
                     is TorrentLogAlert -> {
-                        Log.d("TorrentDownload", "收到 ${alert.type()}")
                         val th = alert.handle()
                         val status = th.status()
                         val progress = status.progress()
                         val downloadRate = status.downloadPayloadRate()
                         val uploadRate = status.uploadPayloadRate()
-                        Log.d("TorrentDownload", "进度: ${progress * 100}%, 下载: $downloadRate bytes/s, 上传: $uploadRate bytes/s")
                         onProgress(progress * 100)
                         onSpeed(downloadRate.toLong(), uploadRate.toLong())
+                    }
+                    is MetadataReceivedAlert -> {
+                        try {
+                            val th = alert.handle()
+                            // 设置文件优先级，只下载选定的文件
+                            val info = th.torrentFile()
+                            val numFiles = info.numFiles()
+                            for (i in 0 until numFiles) {
+                                if (i == fileIndex) {
+                                    th.filePriority(i, Priority.DEFAULT)
+                                } else {
+                                    th.filePriority(i, Priority.IGNORE)
+                                }
+                            }
+                            Log.d("TorrentDownload", "已设置文件优先级，只下载索引 $fileIndex")
+                        } catch (e: Exception) {
+                            Log.e("TorrentDownload", "设置文件优先级时出错", e)
+                        }
                     }
                     else -> {
                         // 其他警报类型暂不处理
@@ -210,7 +231,110 @@ object TorrentManager {
                 }
             }
         }
+
         torrentSession.addListener(listener)
         session.download(newMagnet, getDownloadDirectory(), torrent_flags_t())
     }
+
+    /**
+     * 开始流式播放视频文件
+     * @param magnetUrl 磁力链接
+     * @param fileIndex 要播放的文件索引
+     * @param onProgress 下载进度回调，范围0-100
+     * @param onSpeed 下载速度回调，(下载速度, 上传速度)，单位bytes/s
+     * @param onReady 当文件可以开始播放时的回调，参数为文件路径
+     */
+    suspend fun streamVideo(
+        magnetUrl: String,
+        fileIndex: Int,
+        onProgress: (Float) -> Unit = {},
+        onSpeed: (Long, Long) -> Unit = { _, _ -> },
+        onReady: (String) -> Unit
+    ) {
+        hasCalledOnReady = false
+        val newMagnet = mergeTracker(URLDecoder.decode(magnetUrl, "UTF-8"), getTrackerList())
+        Log.d("TorrentStream", "开始流式播放: $newMagnet, fileIndex: $fileIndex")
+        
+        val session = torrentSession.createSession()
+
+        val listener = object : AlertListener {
+            override fun types(): IntArray? = null
+
+            override fun alert(alert: Alert<*>?) {
+                when (alert) {
+                    is TorrentLogAlert -> {
+                        val th = alert.handle()
+                        val status = th.status()
+                        val progress = status.progress()
+                        val downloadRate = status.downloadPayloadRate()
+                        val uploadRate = status.uploadPayloadRate()
+                        onProgress(progress * 100)
+                        onSpeed(downloadRate.toLong(), uploadRate.toLong())
+
+                        checkAndNotifyReady(th, fileIndex, progress, onReady)
+                    }
+                    is MetadataReceivedAlert -> {
+                        try {
+                            val th = alert.handle()
+                            if (th != null && th.isValid) {
+                                currentPlayingHandle = th
+                                currentPlayingFileIndex = fileIndex
+                                
+                                // 设置文件优先级
+                                val numFiles = th.torrentFile().files().numFiles()
+                                val priorities = Array(numFiles) { Priority.IGNORE }
+                                priorities[fileIndex] = Priority.DEFAULT
+                                th.prioritizeFiles(priorities)
+
+                                // 立即检查文件是否已经存在
+                                checkAndNotifyReady(th, fileIndex, th.status().progress(), onReady)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("TorrentStream", "设置文件优先级失败", e)
+                        }
+                    }
+                }
+            }
+        }
+
+        torrentSession.addListener(listener)
+        session.download(newMagnet, getDownloadDirectory(), torrent_flags_t())
+    }
+
+    private fun checkAndNotifyReady(th: TorrentHandle, fileIndex: Int, progress: Float, onReady: (String) -> Unit) {
+        if (!hasCalledOnReady && progress >= 0.05 && currentPlayingFileIndex == fileIndex) {
+            try {
+                val filePath = getDownloadDirectory().absolutePath + File.separator + 
+                             th.torrentFile().files().filePath(fileIndex)
+                val file = File(filePath)
+                if (file.exists() && file.length() > 0) {
+                    Log.d("TorrentStream", "File is ready at path: $filePath, size: ${file.length()} bytes")
+                    hasCalledOnReady = true
+                    onReady(filePath)
+                } else {
+                    Log.d("TorrentStream", "File not ready yet: exists=${file.exists()}, path=$filePath")
+                }
+            } catch (e: Exception) {
+                Log.e("TorrentStream", "Error checking file readiness", e)
+            }
+        }
+    }
+
+    fun stopStreaming() {
+        currentPlayingHandle?.let { handle ->
+            try {
+                if (handle.isValid) {
+                    val session = torrentSession.createSession()
+                    session.remove(handle)
+                }
+            } catch (e: Exception) {
+                Log.e("TorrentStream", "Error stopping stream", e)
+            }
+        }
+        currentPlayingHandle = null
+        currentPlayingFileIndex = -1
+        hasCalledOnReady = false
+    }
 }
+
+
