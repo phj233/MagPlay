@@ -25,5 +25,5 @@ object DBUtil {
 
     fun getCalculatorDao() = magPlayDB.calculatorDao()
     fun getContactDao() = magPlayDB.contactDao()
-    fun getMagnetHistoryDao() = magPlayDB.magnetHistoryDao()
+    fun getDownloadDao() = magPlayDB.downloadDao()
 }
