@@ -16,4 +16,7 @@ object MagPlayNavRoutes {
     const val SETTINGS = "settings"
 
     const val MAGNET_PARSE = "magnet/parse"
+    const val VIDEO_PLAYER = "video/player"
+    
+    const val DOWNLOAD_MANAGER = "download/manager"
 }

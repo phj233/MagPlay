@@ -32,7 +32,7 @@ class SettingsMMKV {
         }
     }
 
-        // 添加存储路径相关的方法
+    // 添加存储路径相关的方法
     fun setStoragePath(path: String?) {
         if (path == null) {
             mmkv.removeValueForKey("storage_path")

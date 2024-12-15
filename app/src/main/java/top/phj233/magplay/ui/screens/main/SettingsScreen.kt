@@ -36,23 +36,23 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import top.phj233.magplay.nav.LocalNavController
 import top.phj233.magplay.nav.navSetting
-import top.phj233.magplay.ui.screens.storage.StorageViewModel
+import top.phj233.magplay.ui.screens.start.StartViewModel
 
 @Composable
 fun SettingsScreen() {
     val nav = LocalNavController.current
-    val storageViewModel: StorageViewModel = koinInject()
+    val startViewModel = koinInject<StartViewModel>()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     
     var showStorageDialog by remember { mutableStateOf(false) }
-    val selectedUri by storageViewModel.selectedUri.collectAsState()
+    val selectedUri by startViewModel.selectedUri.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let { 
-            storageViewModel.setSelectedUri(it)
+            startViewModel.setSelectedUri(it)
             scope.launch {
                 snackbarHostState.showSnackbar("存储路径已更新")
             }
@@ -119,7 +119,7 @@ fun SettingsScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        storageViewModel.resetStorageState()
+                        startViewModel.resetSelectedUri()
                         showStorageDialog = false
 
                     }
